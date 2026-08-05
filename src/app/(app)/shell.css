@@ -1,0 +1,162 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.app-name {
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--brand);
+}
+
+.company-logos {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logo-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-chip .logo-icon {
+  height: 22px;
+  width: auto;
+  display: block;
+}
+
+.logo-chip .logo-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.theme-toggle {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-role {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.logout-button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.app-content {
+  flex: 1;
+  padding: 32px 24px;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.empty-state {
+  max-width: 480px;
+  margin: 60px auto;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state h1 {
+  font-size: 20px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.module-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.module-card:hover {
+  border-color: var(--brand);
+}
+
+.module-card--locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.module-card small {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 12px;
+}
