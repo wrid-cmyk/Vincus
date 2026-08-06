@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { login } from "@/lib/actions/auth";
 import "./login.css";
@@ -35,6 +36,10 @@ export default function LoginPage() {
             autoComplete="current-password"
           />
         </label>
+
+        <Link href="/esqueci-senha" className="login-forgot-link">
+          Esqueci minha senha
+        </Link>
 
         {state?.error && <p className="login-error">{state.error}</p>}
 
