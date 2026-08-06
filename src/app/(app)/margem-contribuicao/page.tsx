@@ -517,6 +517,26 @@ export default async function MargemContribuicaoPage({
       ]
     )
   );
+
+  type ComposicaoItem = {
+    sku_anuncio: string;
+    sku_componente: string;
+    nome_componente: string | null;
+    quantidade: number;
+  };
+  const composicaoRpc = skusUnicos.length
+    ? await supabase.schema("vendas").rpc("composicao_kit_lote", { p_skus: skusUnicos })
+    : { data: [] as ComposicaoItem[], error: null };
+  if (composicaoRpc.error) {
+    console.error("Erro ao buscar composição de kits (margem de contribuição):", composicaoRpc.error);
+  }
+  const composicaoData = (composicaoRpc.data ?? []) as ComposicaoItem[];
+  const composicaoPorSku = new Map<string, ComposicaoItem[]>();
+  composicaoData.forEach((c) => {
+    const arr = composicaoPorSku.get(c.sku_anuncio) ?? [];
+    arr.push(c);
+    composicaoPorSku.set(c.sku_anuncio, arr);
+  });
   const clientePorId = new Map<
     string,
     { id: string; nome: string; tipo: string | null; uf: string | null }
@@ -612,7 +632,7 @@ export default async function MargemContribuicaoPage({
 
         <div className="filters-row">
           <div className="field" style={{ flex: "1 1 100%" }}>
-            <label>Filial</label>
+            <label>Loja</label>
             <div className="chip-group">
               {filiais.map((f) => (
                 <label key={f.id} className="chip-label">
@@ -816,7 +836,7 @@ export default async function MargemContribuicaoPage({
                           <div className="v">{pedido.canal_venda ?? "—"}</div>
                         </div>
                         <div className="kv">
-                          <label>Filial (origem)</label>
+                          <label>Loja (origem)</label>
                           <div className="v">{filial ? `${filial.nome} · UF ${filial.uf}` : "—"}</div>
                         </div>
                         <div className="kv">
@@ -897,6 +917,49 @@ export default async function MargemContribuicaoPage({
                         })}
                       </tbody>
                     </table>
+
+                    {(() => {
+                      const itensComComposicao = itensDoPedido
+                        .map((item) => ({ item, componentes: composicaoPorSku.get(item.sku) }))
+                        .filter(
+                          (x): x is { item: ItemPedido; componentes: ComposicaoItem[] } =>
+                            !!x.componentes && x.componentes.length > 0
+                        );
+                      if (itensComComposicao.length === 0) return null;
+                      return (
+                        <>
+                          <div className="detail-section-title">Composição — produto(s) pai</div>
+                          <table className="items-table">
+                            <thead>
+                              <tr>
+                                <th>SKU anúncio</th>
+                                <th>SKU componente (pai)</th>
+                                <th>Título</th>
+                                <th className="num">Qtd. por kit</th>
+                                <th className="num">Qtd. total no pedido</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {itensComComposicao.flatMap(({ item, componentes }) =>
+                                componentes.map((c) => (
+                                  <tr key={`${item.id}-${c.sku_componente}`}>
+                                    <td className="tabnum">{item.sku}</td>
+                                    <td className="tabnum cell-strong">{c.sku_componente}</td>
+                                    <td className="item-title" title={c.nome_componente ?? c.sku_componente}>
+                                      {c.nome_componente ?? "—"}
+                                    </td>
+                                    <td className="num tabnum">{c.quantidade}</td>
+                                    <td className="num tabnum">
+                                      {Number(c.quantidade) * Number(item.quantidade)}
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </>
+                      );
+                    })()}
 
                     {pedido.rollup_calculado_em ? (
                       <>
