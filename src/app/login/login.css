@@ -86,3 +86,34 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.login-forgot-link {
+  align-self: flex-end;
+  margin-top: -8px;
+  font-size: 13px;
+  color: var(--brand);
+  text-decoration: none;
+}
+
+.login-forgot-link:hover {
+  text-decoration: underline;
+}
+
+.login-success {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.login-back-link {
+  align-self: center;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.login-back-link:hover {
+  text-decoration: underline;
+}
