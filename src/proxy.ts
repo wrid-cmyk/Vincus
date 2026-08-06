@@ -35,15 +35,23 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isPublicRoute = request.nextUrl.pathname.startsWith("/login");
+  // /login e /esqueci-senha: acessíveis sem sessão, e quem já está logado é
+  // mandado de volta pra home. /auth/confirm: sempre acessível (é o link que
+  // vem por email pra confirmar a redefinição de senha), independente de já
+  // existir cookie de sessão antigo no navegador.
+  const isAuthFlowRoute =
+    request.nextUrl.pathname.startsWith("/login") ||
+    request.nextUrl.pathname.startsWith("/esqueci-senha");
+  const isAuthConfirmRoute =
+    request.nextUrl.pathname.startsWith("/auth/confirm");
 
-  if (!user && !isPublicRoute) {
+  if (!user && !isAuthFlowRoute && !isAuthConfirmRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  if (user && isPublicRoute) {
+  if (user && isAuthFlowRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
