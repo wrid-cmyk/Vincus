@@ -291,16 +291,25 @@ type Pedido = {
   comissao_vendedor: number | null;
 };
 
-function calcularMargemItem(item: ItemPedido, pedido: Pedido) {
-  if (!pedido.rollup_calculado_em || item.cmv_unitario === null) return null;
-  const valorItem = Number(item.valor_total_item ?? 0);
-  const valorPedido = Number(pedido.valor_total_pedido) || 1;
-  const impostosItem =
+function impostosDoItem(item: ItemPedido) {
+  return (
     Number(item.valor_icms ?? 0) +
     Number(item.valor_icms_difal ?? 0) +
     Number(item.valor_ipi ?? 0) +
     Number(item.valor_pis ?? 0) +
-    Number(item.valor_cofins ?? 0);
+    Number(item.valor_cofins ?? 0)
+  );
+}
+
+function somarImpostosItens(itens: ItemPedido[]) {
+  return itens.reduce((soma, item) => soma + impostosDoItem(item), 0);
+}
+
+function calcularMargemItem(item: ItemPedido, pedido: Pedido) {
+  if (!pedido.rollup_calculado_em || item.cmv_unitario === null) return null;
+  const valorItem = Number(item.valor_total_item ?? 0);
+  const valorPedido = Number(pedido.valor_total_pedido) || 1;
+  const impostosItem = impostosDoItem(item);
   const comissaoRateada =
     Number(pedido.total_comissoes_taxas ?? 0) * (valorItem / valorPedido);
   const cmvItem = Number(item.cmv_unitario) * Number(item.quantidade);
@@ -487,7 +496,10 @@ export default async function MargemContribuicaoPage({
   type ProdutoResumo = { sku: string; nome: string | null; origem_produto: string | null };
   const produtosRpc = skusUnicos.length
     ? await supabase.schema("vendas").rpc("produtos_resumo_venda_lote", { p_skus: skusUnicos })
-    : { data: [] as ProdutoResumo[] };
+    : { data: [] as ProdutoResumo[], error: null };
+  if (produtosRpc.error) {
+    console.error("Erro ao buscar nomes/origem dos produtos (margem de contribuição):", produtosRpc.error);
+  }
   const produtosData = (produtosRpc.data ?? []) as ProdutoResumo[];
 
   const itensPorPedido = new Map<string, ItemPedido[]>();
@@ -555,44 +567,6 @@ export default async function MargemContribuicaoPage({
           : "Últimos 3 dias (padrão)"}
       </p>
 
-      {/* SOMA / cards de resumo */}
-      <div className="summary-cards">
-        <div className="stat-tile">
-          <div className="st-label">Pedidos</div>
-          <div className="st-value">{totalPedidosResumo.toLocaleString("pt-BR")}</div>
-          <div className="st-sub">
-            {totalPendentesResumo > 0
-              ? `${totalPendentesResumo} ainda não calculado${totalPendentesResumo === 1 ? "" : "s"}`
-              : "todos calculados"}
-          </div>
-        </div>
-        <div className="stat-tile">
-          <div className="st-label">Valor total vendido</div>
-          <div className="st-value">{formatarMoeda(somaValorResumo)}</div>
-          <div className="st-sub">
-            {totalPedidosResumo} pedido{totalPedidosResumo === 1 ? "" : "s"} no filtro atual
-          </div>
-        </div>
-        <div className="stat-tile">
-          <div className="st-label">Margem total (R$)</div>
-          <div className={`st-value ${somaLucroResumo !== null ? statusDeMargem(margemMediaPct) : ""}`}>
-            {somaLucroResumo !== null ? formatarMoeda(somaLucroResumo) : "—"}
-          </div>
-          <div className="st-sub">
-            {somaLucroResumo !== null
-              ? "somando pedidos já calculados"
-              : "nenhum pedido calculado no filtro"}
-          </div>
-        </div>
-        <div className="stat-tile">
-          <div className="st-label">Margem média (%)</div>
-          <div className={`st-value ${margemMediaPct !== null ? statusDeMargem(margemMediaPct) : ""}`}>
-            {margemMediaPct !== null ? formatarPercentual(margemMediaPct) : "—"}
-          </div>
-          <div className="st-sub">ponderada pelo valor de venda</div>
-        </div>
-      </div>
-
       {/* FILTROS */}
       <form method="GET" className="card filters">
         {sortKey !== "data" && <input type="hidden" name="sort" value={sortKey} />}
@@ -618,7 +592,7 @@ export default async function MargemContribuicaoPage({
         </div>
 
         <div className="filters-row">
-          <div className="field" style={{ flex: "2 1 320px" }}>
+          <div className="field" style={{ flex: "1 1 100%" }}>
             <label>Canal</label>
             <div className="chip-group">
               {CANAL_GRUPOS.map((g) => (
@@ -634,7 +608,10 @@ export default async function MargemContribuicaoPage({
               ))}
             </div>
           </div>
-          <div className="field" style={{ flex: "2 1 260px" }}>
+        </div>
+
+        <div className="filters-row">
+          <div className="field" style={{ flex: "1 1 100%" }}>
             <label>Filial</label>
             <div className="chip-group">
               {filiais.map((f) => (
@@ -710,6 +687,44 @@ export default async function MargemContribuicaoPage({
           </div>
         </div>
       </form>
+
+      {/* SOMA / cards de resumo */}
+      <div className="summary-cards">
+        <div className="stat-tile">
+          <div className="st-label">Pedidos</div>
+          <div className="st-value">{totalPedidosResumo.toLocaleString("pt-BR")}</div>
+          <div className="st-sub">
+            {totalPendentesResumo > 0
+              ? `${totalPendentesResumo} ainda não calculado${totalPendentesResumo === 1 ? "" : "s"}`
+              : "todos calculados"}
+          </div>
+        </div>
+        <div className="stat-tile">
+          <div className="st-label">Valor total vendido</div>
+          <div className="st-value">{formatarMoeda(somaValorResumo)}</div>
+          <div className="st-sub">
+            {totalPedidosResumo} pedido{totalPedidosResumo === 1 ? "" : "s"} no filtro atual
+          </div>
+        </div>
+        <div className="stat-tile">
+          <div className="st-label">Margem total (R$)</div>
+          <div className={`st-value ${somaLucroResumo !== null ? statusDeMargem(margemMediaPct) : ""}`}>
+            {somaLucroResumo !== null ? formatarMoeda(somaLucroResumo) : "—"}
+          </div>
+          <div className="st-sub">
+            {somaLucroResumo !== null
+              ? "somando pedidos já calculados"
+              : "nenhum pedido calculado no filtro"}
+          </div>
+        </div>
+        <div className="stat-tile">
+          <div className="st-label">Margem média (%)</div>
+          <div className={`st-value ${margemMediaPct !== null ? statusDeMargem(margemMediaPct) : ""}`}>
+            {margemMediaPct !== null ? formatarPercentual(margemMediaPct) : "—"}
+          </div>
+          <div className="st-sub">ponderada pelo valor de venda</div>
+        </div>
+      </div>
 
       {/* TABELA */}
       {pedidos.length === 0 ? (
@@ -941,7 +956,9 @@ export default async function MargemContribuicaoPage({
                                 <span>Impostos</span>
                                 <span className="tc-arrow">ver por item ▸</span>
                               </div>
-                              <div className="tc-val">{formatarMoeda(pedido.total_impostos)}</div>
+                              <div className="tc-val">
+                                {formatarMoeda(somarImpostosItens(itensDoPedido))}
+                              </div>
                             </summary>
                             <div className="subdetail">
                               <div className="subdetail-title">Impostos por item</div>
@@ -959,12 +976,7 @@ export default async function MargemContribuicaoPage({
                                 </thead>
                                 <tbody>
                                   {itensDoPedido.map((item) => {
-                                    const tot =
-                                      Number(item.valor_icms ?? 0) +
-                                      Number(item.valor_icms_difal ?? 0) +
-                                      Number(item.valor_ipi ?? 0) +
-                                      Number(item.valor_pis ?? 0) +
-                                      Number(item.valor_cofins ?? 0);
+                                    const tot = impostosDoItem(item);
                                     return (
                                       <tr key={item.id}>
                                         <td>{item.sku}</td>
