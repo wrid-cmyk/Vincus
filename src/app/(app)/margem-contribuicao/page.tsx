@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { requerPermissao } from "@/lib/dal";
 import { createClient } from "@/lib/supabase/server";
+import { RefreshButton } from "@/components/refresh-button";
 import "./margem.css";
 
 export const dynamic = "force-dynamic";
@@ -56,12 +57,17 @@ function dataValida(valor?: string) {
   return valor && DATE_RE.test(valor) ? valor : undefined;
 }
 
+// data_venda é gravada como data pura, sempre à meia-noite UTC (confirmado
+// ao vivo: 99,6% dos pedidos têm horário exatamente 00:00:00 UTC — não há
+// horário real de venda armazenado). Por isso os limites do filtro usam UTC
+// diretamente ("Z"), não um offset de America/Sao_Paulo: comparar com
+// "-03:00" desalinha em 3h e faz pedidos de hoje caírem no filtro de ontem.
 function limiteInicioDia(data: string) {
-  return `${data}T00:00:00-03:00`;
+  return `${data}T00:00:00.000Z`;
 }
 
 function limiteFimDia(data: string) {
-  return `${data}T23:59:59.999-03:00`;
+  return `${data}T23:59:59.999Z`;
 }
 
 function formatarDataCurta(valor: string) {
@@ -96,17 +102,28 @@ function formatarMoeda(valor: unknown) {
   return Number.isFinite(n) ? formatadorMoeda.format(n) : "—";
 }
 
-const formatadorDataHora = new Intl.DateTimeFormat("pt-BR", {
+// Mesma razão do comentário em limiteInicioDia/limiteFimDia: data_venda não
+// tem horário real, só data em UTC. Formatar em America/Sao_Paulo aqui
+// mostraria "21:00 do dia anterior" pra todo pedido (meia-noite UTC vira
+// 21h do dia anterior em BRT) — por isso lê a data em UTC, sem conversão de
+// fuso, e sem mostrar hora (não existe hora real pra mostrar).
+const formatadorData = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
-  timeStyle: "short",
-  timeZone: "America/Sao_Paulo",
+  timeZone: "UTC",
 });
 
-function formatarDataHora(valor: string | null) {
+function formatarData(valor: string | null) {
   if (!valor) return "—";
   const d = new Date(valor);
-  return Number.isNaN(d.getTime()) ? "—" : formatadorDataHora.format(d);
+  return Number.isNaN(d.getTime()) ? "—" : formatadorData.format(d);
 }
+
+// Este sim é um instante real (hora em que a página renderizou no
+// servidor) — aqui a conversão pra America/Sao_Paulo é a correta.
+const formatadorHoraAtualizacao = new Intl.DateTimeFormat("pt-BR", {
+  timeStyle: "medium",
+  timeZone: "America/Sao_Paulo",
+});
 
 function formatarPercentual(valor: unknown) {
   if (valor === null || valor === undefined) return "—";
@@ -150,9 +167,7 @@ function StatusPill({
     <span
       className={`status-pill status-${status}`}
       title={
-        status === "pending"
-          ? "Ainda não calculado — aguardando o motor de rollup"
-          : undefined
+        status === "pending" ? "Ainda não calculado — aguardando processamento" : undefined
       }
     >
       <span className="status-icon">{STATUS_ICONE[status]}</span>
@@ -554,6 +569,10 @@ export default async function MargemContribuicaoPage({
   const totalRegistros = count ?? 0;
   const totalPaginas = Math.max(1, Math.ceil(totalRegistros / PAGE_SIZE));
   const hojeStr = formatarDataInput(new Date());
+  // Instante real de renderização (página é force-dynamic — busca tudo de
+  // novo no Supabase a cada request). Mostrado junto do botão de atualizar
+  // pra deixar visível que os dados são buscados na hora.
+  const atualizadoEm = formatadorHoraAtualizacao.format(new Date());
 
   const totalPedidosResumo = resumo?.total_pedidos ?? totalRegistros;
   const totalPendentesResumo = resumo?.total_pendentes ?? 0;
@@ -684,10 +703,16 @@ export default async function MargemContribuicaoPage({
         </div>
 
         <div className="filters-footer">
-          <span className="result-count">
-            {totalRegistros} pedido{totalRegistros === 1 ? "" : "s"} encontrado
-            {totalRegistros === 1 ? "" : "s"}
-          </span>
+          <div className="mc-status-wrap">
+            <span className="result-count">
+              {totalRegistros} pedido{totalRegistros === 1 ? "" : "s"} encontrado
+              {totalRegistros === 1 ? "" : "s"}
+            </span>
+            <span className="mc-atualizado">
+              Atualizado às {atualizadoEm} · dados ao vivo do Supabase
+            </span>
+            <RefreshButton />
+          </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {(usandoFiltroPersonalizado ||
               somenteCalculado ||
@@ -810,7 +835,7 @@ export default async function MargemContribuicaoPage({
                   <span className="num-cell">
                     <StatusPill pct={pedido.margem_lucro_percentual} compacto />
                   </span>
-                  <span className="cell-muted">{formatarDataHora(pedido.data_venda)}</span>
+                  <span className="cell-muted">{formatarData(pedido.data_venda)}</span>
                   <span className="chevron-btn" aria-hidden="true">
                     ⌄
                   </span>
@@ -849,7 +874,7 @@ export default async function MargemContribuicaoPage({
                         </div>
                         <div className="kv">
                           <label>Data da venda</label>
-                          <div className="v">{formatarDataHora(pedido.data_venda)}</div>
+                          <div className="v">{formatarData(pedido.data_venda)}</div>
                         </div>
                         <div className="kv">
                           <label>Valor total do pedido</label>
@@ -1143,7 +1168,7 @@ export default async function MargemContribuicaoPage({
                       <>
                         <div className="detail-section-title">Cálculo do pedido</div>
                         <p className="mc-pendente-nota">
-                          ⏳ <strong>Ainda não calculado.</strong> Aguardando o motor de rollup processar este pedido.
+                          ⏳ <strong>Ainda não calculado.</strong> Aguardando processamento.
                         </p>
                       </>
                     )}
@@ -1198,7 +1223,7 @@ export default async function MargemContribuicaoPage({
           <span className="status-pill status-pending">
             <span className="status-icon">⏳</span>—
           </span>{" "}
-          ainda não calculado (aguardando motor)
+          ainda não calculado (aguardando processamento)
         </span>
       </div>
     </div>
