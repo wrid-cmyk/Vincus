@@ -14,13 +14,13 @@ export default function LoginPage() {
         <div className="login-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/ppcs_icon.png"
+            src="/brand/vincus_icon.png"
             alt=""
             className="login-brand-icon"
           />
           <span className="login-brand-name">Vincus</span>
         </div>
-        <p className="login-subtitle">Entre com sua conta WRID</p>
+        <p className="login-subtitle">Entre com sua conta Vincus</p>
 
         <label className="login-field">
           <span>Email</span>
