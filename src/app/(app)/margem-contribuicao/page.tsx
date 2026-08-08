@@ -25,7 +25,6 @@ type SearchParams = {
 const PAGE_SIZE = 50;
 const DATA_MINIMA = "2020-01-01";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const ID_INEXISTENTE = "00000000-0000-0000-0000-000000000000";
 
 const SORT_COLUNAS: Record<string, string> = {
   valorTotal: "valor_total_pedido",
@@ -408,35 +407,22 @@ export default async function MargemContribuicaoPage({
 
   const supabase = await createClient();
 
-  // Filtros de SKU exigem resolver primeiro quais pedidos têm item compatível.
-  let idsPorSku: string[] | null = null;
-  let idsPorSkuPai: string[] | null = null;
-  if (skuFiltro) {
-    const { data } = await supabase
-      .schema("vendas")
-      .from("itens_pedido")
-      .select("id_pedido")
-      .ilike("sku", `%${skuFiltro}%`)
-      .limit(3000);
-    idsPorSku = Array.from(new Set((data ?? []).map((r) => r.id_pedido as string)));
-  }
-  if (skuPaiFiltro) {
-    const { data } = await supabase
-      .schema("vendas")
-      .from("itens_pedido")
-      .select("id_pedido")
-      .ilike("sku", `${skuPaiFiltro}%`)
-      .limit(3000);
-    idsPorSkuPai = Array.from(new Set((data ?? []).map((r) => r.id_pedido as string)));
-  }
+  // Filtros de SKU (anúncio e composição/pai) usam join com itens_pedido em vez de
+  // pré-buscar os IDs de pedido e usar .in() — um SKU comum pode casar milhares de
+  // pedidos, e uma lista de milhares de UUIDs no filtro .in() estoura o limite de
+  // tamanho de URL da API e quebra com "Não foi possível carregar os pedidos agora"
+  // (bug reportado 08/08/2026). O join evita isso e também remove o limite de 3000
+  // itens que causava truncamento silencioso de resultados para SKUs muito comuns.
+  const colunasBase =
+    "id, id_pedido_marketplace, canal_venda, id_cliente, id_filial, data_venda, valor_total_pedido, total_cmv, total_impostos, total_comissoes_taxas, lucro_liquido, margem_lucro_percentual, rollup_calculado_em, numero_bling, tarifa_comissao, frete_pago_vendedor, custo_embalagem, custo_logistico_fulfillment, custo_financeiro, comissao_vendedor";
+  const embedsSku =
+    (skuFiltro ? ", filtro_sku:itens_pedido!inner(sku)" : "") +
+    (skuPaiFiltro ? ", filtro_sku_pai:itens_pedido!inner(sku)" : "");
 
   let query = supabase
     .schema("vendas")
     .from("pedidos")
-    .select(
-      "id, id_pedido_marketplace, canal_venda, id_cliente, id_filial, data_venda, valor_total_pedido, total_cmv, total_impostos, total_comissoes_taxas, lucro_liquido, margem_lucro_percentual, rollup_calculado_em, numero_bling, tarifa_comissao, frete_pago_vendedor, custo_embalagem, custo_logistico_fulfillment, custo_financeiro, comissao_vendedor",
-      { count: "exact" }
-    )
+    .select(colunasBase + embedsSku, { count: "exact" })
     .gte("data_venda", DATA_MINIMA)
     .gte("data_venda", limiteInicioDia(dataInicio))
     .lte("data_venda", limiteFimDia(dataFim));
@@ -452,9 +438,8 @@ export default async function MargemContribuicaoPage({
     );
     if (partes.length) query = query.or(partes.join(","));
   }
-  if (idsPorSku) query = query.in("id", idsPorSku.length ? idsPorSku : [ID_INEXISTENTE]);
-  if (idsPorSkuPai)
-    query = query.in("id", idsPorSkuPai.length ? idsPorSkuPai : [ID_INEXISTENTE]);
+  if (skuFiltro) query = query.ilike("filtro_sku.sku", `%${skuFiltro}%`);
+  if (skuPaiFiltro) query = query.ilike("filtro_sku_pai.sku", `${skuPaiFiltro}%`);
 
   query = query
     .order(sortColuna, { ascending: sortDir === "asc" })
@@ -487,7 +472,12 @@ export default async function MargemContribuicaoPage({
     );
   }
 
-  const pedidos = (pedidosData ?? []) as Pedido[];
+  // select() usa uma string montada dinamicamente (colunasBase + embedsSku), então o
+  // Supabase-js não consegue inferir o formato do retorno a partir de um literal —
+  // cai num tipo genérico de erro. O formato real continua o mesmo (colunas de Pedido
+  // + os embeds filtro_sku/filtro_sku_pai, que não são usados abaixo), daí o cast em
+  // 2 passos via unknown.
+  const pedidos = (pedidosData ?? []) as unknown as Pedido[];
   const pedidoIds = pedidos.map((p) => p.id);
   const clienteIds = Array.from(new Set(pedidos.map((p) => p.id_cliente).filter(Boolean))) as string[];
 
