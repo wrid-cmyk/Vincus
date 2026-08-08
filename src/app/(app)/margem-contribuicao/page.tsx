@@ -25,6 +25,10 @@ type SearchParams = {
 const PAGE_SIZE = 50;
 const DATA_MINIMA = "2020-01-01";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Sentinel usado quando "SKU composição (pai)" não resolve nenhum kit — força o
+// filtro .in() a não casar nenhuma linha, sem precisar de um caminho de código
+// separado só pra "sem resultado".
+const SKU_INEXISTENTE = "__sku_inexistente__";
 
 const SORT_COLUNAS: Record<string, string> = {
   valorTotal: "valor_total_pedido",
@@ -305,6 +309,13 @@ type Pedido = {
   comissao_vendedor: number | null;
 };
 
+// Retorno do embed catalogo.estruturas_composicao usado pra resolver "SKU
+// composição (pai)" — ver comentário onde skuPaiKits é montado.
+type ComposicaoMatch = {
+  kit: { sku: string } | null;
+  componente: { sku: string } | null;
+};
+
 function impostosDoItem(item: ItemPedido) {
   return (
     Number(item.valor_icms ?? 0) +
@@ -407,6 +418,44 @@ export default async function MargemContribuicaoPage({
 
   const supabase = await createClient();
 
+  // "SKU composição (pai)" filtra pela composição real do kit
+  // (catalogo.estruturas_composicao), não pelo SKU do item vendido — antes disso o
+  // campo fazia prefix-match direto em itens_pedido.sku (mesma coluna do campo "SKU
+  // anúncio"), então um SKU que também fosse um SKU de anúncio aparecia no resultado
+  // mesmo sem estar dentro de nenhum kit. Resolve primeiro quais SKUs de anúncio
+  // (kits) têm um componente cujo SKU bate com o padrão informado; estruturas_composicao
+  // tem FK própria pra catalogo.produtos dos dois lados (kit e componente), então dá
+  // pra fazer isso com um embed do PostgREST, sem RPC. A lista resultante costuma ser
+  // pequena (poucas dezenas/centenas de kits, no máximo os ~10 mil cadastrados no
+  // total) — bem longe do tamanho que quebrava o filtro antigo (milhares de UUIDs de
+  // pedido, bug 08/08/2026).
+  let skuPaiKits: string[] = [];
+  if (skuPaiFiltro) {
+    const { data: composicaoMatches, error: composicaoError } = await supabase
+      .schema("catalogo")
+      .from("estruturas_composicao")
+      .select(
+        "kit:produtos!estruturas_composicao_id_produto_kit_fkey(sku), componente:produtos!estruturas_composicao_id_produto_componente_fkey!inner(sku)"
+      )
+      .ilike("componente.sku", `${skuPaiFiltro}%`)
+      .limit(2000);
+    if (composicaoError) {
+      console.error("Erro ao resolver SKU de composição (pai):", composicaoError);
+    }
+    const kitsUnicos = new Set<string>();
+    ((composicaoMatches ?? []) as unknown as ComposicaoMatch[]).forEach((row) => {
+      if (row.kit?.sku) kitsUnicos.add(row.kit.sku);
+    });
+    skuPaiKits = Array.from(kitsUnicos);
+  }
+
+  // Lista de padrões ILIKE por canal (ex.: "Mercado Livre%") — usada tanto no filtro
+  // da query principal quanto no parâmetro da RPC de resumo, pra manter os dois em
+  // sincronia com os mesmos filtros aplicados.
+  const canaisPatterns = CANAL_GRUPOS.filter((g) => canaisSelecionados.has(g.chave)).map(
+    (g) => g.padrao
+  );
+
   // Filtros de SKU (anúncio e composição/pai) usam join com itens_pedido em vez de
   // pré-buscar os IDs de pedido e usar .in() — um SKU comum pode casar milhares de
   // pedidos, e uma lista de milhares de UUIDs no filtro .in() estoura o limite de
@@ -432,14 +481,12 @@ export default async function MargemContribuicaoPage({
     query = query.in("id_filial", Array.from(filiaisSelecionadas));
   if (pedidoBlingFiltro) query = query.ilike("numero_bling", `%${pedidoBlingFiltro}%`);
   if (pedidoMktFiltro) query = query.ilike("id_pedido_marketplace", `%${pedidoMktFiltro}%`);
-  if (canaisSelecionados.size) {
-    const partes = CANAL_GRUPOS.filter((g) => canaisSelecionados.has(g.chave)).map(
-      (g) => `canal_venda.ilike.${g.padrao}`
-    );
-    if (partes.length) query = query.or(partes.join(","));
+  if (canaisPatterns.length) {
+    query = query.or(canaisPatterns.map((p) => `canal_venda.ilike.${p}`).join(","));
   }
   if (skuFiltro) query = query.ilike("filtro_sku.sku", `%${skuFiltro}%`);
-  if (skuPaiFiltro) query = query.ilike("filtro_sku_pai.sku", `${skuPaiFiltro}%`);
+  if (skuPaiFiltro)
+    query = query.in("filtro_sku_pai.sku", skuPaiKits.length ? skuPaiKits : [SKU_INEXISTENTE]);
 
   query = query
     .order(sortColuna, { ascending: sortDir === "asc" })
@@ -454,6 +501,12 @@ export default async function MargemContribuicaoPage({
         p_data_inicio: limiteInicioDia(dataInicio),
         p_data_fim: limiteFimDia(dataFim),
         p_somente_calculado: somenteCalculado,
+        p_canais: canaisPatterns.length ? canaisPatterns : null,
+        p_filiais: filiaisSelecionadas.size ? Array.from(filiaisSelecionadas) : null,
+        p_sku: skuFiltro || null,
+        p_sku_pai_kits: skuPaiFiltro ? skuPaiKits : null,
+        p_pedido_bling: pedidoBlingFiltro || null,
+        p_pedido_mkt: pedidoMktFiltro || null,
       }),
     supabase.from("filiais").select("id, nome, uf").eq("ativo", true).order("nome"),
   ]);
